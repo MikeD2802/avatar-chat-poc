@@ -1,26 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import ChatInterface from './components/ChatInterface';
 import Avatar from './components/Avatar';
-import { ElevenLabsAPI } from './utils/elevenlabs';
-
-// Initialize ElevenLabs API with the key from environment variables
-const elevenLabs = new ElevenLabsAPI(import.meta.env.VITE_ELEVENLABS_API_KEY);
+import { elevenLabsInstance } from './utils/elevenlabs';
+import { secureConfig } from './utils/config';
 
 function App() {
   const [currentEmotion, setCurrentEmotion] = useState('neutral');
   const [messages, setMessages] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAudio, setCurrentAudio] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Clean up audio when component unmounts
+  // Initialize secure configuration and ElevenLabs
   useEffect(() => {
+    const initializeServices = async () => {
+      try {
+        // In production, this would use environment variables
+        // For development, we'll simulate secure key storage
+        if (process.env.NODE_ENV === 'development') {
+          const { encryptedData, iv, encryptionKey } = await secureConfig.encryptKey(
+            import.meta.env.VITE_ELEVENLABS_API_KEY
+          );
+          await secureConfig.init({ encryptedData, iv, encryptionKey });
+        } else {
+          await secureConfig.init();
+        }
+
+        await elevenLabsInstance.init();
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('Failed to initialize services:', error);
+      }
+    };
+
+    initializeServices();
+
+    // Cleanup on unmount
     return () => {
       if (currentAudio) {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       }
+      elevenLabsInstance.destroy();
+      secureConfig.clearConfig();
     };
-  }, [currentAudio]);
+  }, []);
 
   const detectEmotion = (text) => {
     const lowerText = text.toLowerCase();
@@ -33,13 +57,18 @@ function App() {
   };
 
   const playResponse = async (text) => {
+    if (!isInitialized) {
+      console.error('Services not initialized');
+      return;
+    }
+
     try {
       if (currentAudio) {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       }
 
-      const audio = await elevenLabs.textToSpeech(text);
+      const audio = await elevenLabsInstance.textToSpeech(text);
       setCurrentAudio(audio);
       
       audio.addEventListener('play', () => setIsPlaying(true));
@@ -57,6 +86,11 @@ function App() {
   };
 
   const handleSendMessage = async (message) => {
+    if (!isInitialized) {
+      console.error('Services not initialized');
+      return;
+    }
+
     // Add user message
     setMessages(prev => [...prev, { text: message, sender: 'user' }]);
     
@@ -73,6 +107,16 @@ function App() {
       await playResponse(response);
     }, 1000);
   };
+
+  if (!isInitialized) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100">
+        <div className="text-xl font-semibold text-gray-600">
+          Initializing secure services...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-100">
