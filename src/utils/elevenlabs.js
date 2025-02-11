@@ -1,12 +1,33 @@
-// ElevenLabs API integration
+import { secureConfig } from './config';
+
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 export class ElevenLabsAPI {
-  constructor(apiKey) {
-    this.apiKey = apiKey;
+  constructor() {
+    this.initialized = false;
   }
 
-  async textToSpeech(text, voiceId = 'ThT5KcBeYPX3keUQqHPh') {  // Using "Rachel" voice by default
+  async init() {
+    if (this.initialized) return;
+    
+    try {
+      this.apiKey = await secureConfig.getKey('ELEVENLABS_API_KEY');
+      this.initialized = true;
+    } catch (error) {
+      console.error('Failed to initialize ElevenLabs API:', error);
+      throw new Error('ElevenLabs API initialization failed');
+    }
+  }
+
+  async validateAccess() {
+    if (!this.initialized) {
+      await this.init();
+    }
+  }
+
+  async textToSpeech(text, voiceId = 'ThT5KcBeYPX3keUQqHPh') {
+    await this.validateAccess();
+
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
         method: 'POST',
@@ -37,6 +58,8 @@ export class ElevenLabsAPI {
   }
 
   async getVoices() {
+    await this.validateAccess();
+
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
         headers: {
@@ -54,4 +77,13 @@ export class ElevenLabsAPI {
       throw error;
     }
   }
+
+  // Clean up and clear sensitive data
+  destroy() {
+    this.apiKey = null;
+    this.initialized = false;
+  }
 }
+
+// Create a singleton instance
+export const elevenLabsInstance = new ElevenLabsAPI();
